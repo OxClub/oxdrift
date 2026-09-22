@@ -48,18 +48,40 @@ jobs:
           mkdir -p ~/.local/share/godot/export_templates/4.3.stable
           cp ~/godot/templates/* ~/.local/share/godot/export_templates/4.3.stable/
 
-      - name: Debug keystore (Godot default location)
+      - name: Create debug keystore
         run: |
+          mkdir -p ~/.android
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android \
-            -keystore ~/.local/share/godot/debug.keystore -storepass android \
+            -keystore ~/.android/debug.keystore -storepass android \
             -dname "cn=Android Debug,O=Android,C=US" -validity 9999
+
+      - name: Configure Godot editor settings
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          mkdir -p ~/.config/godot
+          printf '%s\n' \
+            'config_version=5' \
+            '' \
+            '[export]' \
+            '' \
+            'android/android_sdk_path = "%s"' "$ANDROID_HOME" > /dev/null
+          cat > ~/.config/godot/editor_settings-4.3.tres << EOT
+          config_version=5
+
+          [export]
+
+          android/android_sdk_path = "${ANDROID_HOME}"
+          android/java_sdk_path = "${JAVA_HOME}"
+          android/debug_keystore = "${HOME}/.android/debug.keystore"
+          android/debug_keystore_user = "androiddebugkey"
+          android/debug_keystore_pass = "android"
+          EOT
 
       - name: Import resources
         run: ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --import
 
       - name: Export APK
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           mkdir -p build
           ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --export-debug "Android" build/OxDrift.apk

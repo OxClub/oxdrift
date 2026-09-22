@@ -26,6 +26,7 @@ var lbl_drift: Label
 var bar_nitro: ProgressBar
 
 func _ready() -> void:
+    cam = get_node("Cam") as Camera3D
     build_environment()
     build_track()
     spawn_car()
@@ -144,8 +145,8 @@ func build_ui() -> void:
     var reset := make_button(ui, "RESET", Vector2(1150, 80), Color(0.9, 0.3, 0.3))
     reset.pressed.connect(func(): car.reset_to(SPAWN, SPAWN_YAW))
 
-    var b_left := make_button(ui, "◀", Vector2(30, 520), Color(0.2, 0.3, 0.6))
-    var b_right := make_button(ui, "▶", Vector2(200, 520), Color(0.2, 0.3, 0.6))
+    var b_left := make_button(ui, "<", Vector2(30, 520), Color(0.2, 0.3, 0.6))
+    var b_right := make_button(ui, ">", Vector2(200, 520), Color(0.2, 0.3, 0.6))
     var b_gas := make_button(ui, "GAS", Vector2(1100, 520), Color(0.1, 0.6, 0.3))
     var b_brake := make_button(ui, "BRAKE", Vector2(1100, 370), Color(0.7, 0.25, 0.2))
     var b_nitro := make_button(ui, "NITRO", Vector2(920, 520), Color(0.9, 0.6, 0.1))
@@ -200,17 +201,17 @@ func _on_drift(points: float) -> void:
     lbl_drift.text = "DRIFT! +%d" % int(points * 60)
 
 func _process(delta: float) -> void:
-    if Input.is_physical_key_pressed(KEY_LEFT): steer = -1.0
-    elif Input.is_physical_key_pressed(KEY_RIGHT): steer = 1.0
-    else: steer = steer if steer != 0 and (Input.is_physical_key_pressed(KEY_LEFT) or Input.is_physical_key_pressed(KEY_RIGHT)) else steer
-    if Input.is_physical_key_pressed(KEY_UP): gas = 1.0
-    if Input.is_physical_key_pressed(KEY_DOWN): braking = 1.0
-    if Input.is_physical_key_pressed(KEY_SPACE): nitro = true
-
     car.steer_input = steer
+    if Input.is_physical_key_pressed(KEY_LEFT): car.steer_input = -1.0
+    elif Input.is_physical_key_pressed(KEY_RIGHT): car.steer_input = 1.0
+
     car.throttle = gas
+    if Input.is_physical_key_pressed(KEY_UP): car.throttle = 1.0
+
     car.brake_input = braking
-    car.nitro_held = nitro
+    if Input.is_physical_key_pressed(KEY_DOWN): car.brake_input = 1.0
+
+    car.nitro_held = nitro or Input.is_physical_key_pressed(KEY_SPACE)
 
     run_time += delta
     lap_time += delta
@@ -226,7 +227,7 @@ func _process(delta: float) -> void:
     lbl_speed.text = "%d km/h" % int(absf(car.forward_speed) * 3.6)
     lbl_lap.text = "Lap: %.1fs" % lap_time
     lbl_best.text = "Best: %s" % ("%.1fs" % best_lap if best_lap > 0 else "--")
-    lbl_score.text = "💰 %d" % int(score)
+    lbl_score.text = "Cash %d" % int(score)
     bar_nitro.value = car.nitro_fuel
     if not car.drifting:
         lbl_drift.text = ""
