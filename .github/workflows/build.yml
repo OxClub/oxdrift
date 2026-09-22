@@ -18,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK bits
+      - name: Make sure Android SDK pieces exist
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
@@ -26,66 +26,28 @@ jobs:
           yes | $SDKMANAGER --licenses > /dev/null || true
           $SDKMANAGER "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null
 
-      - name: Cache Godot
-        id: gcache
-        uses: actions/cache@v4
+      - name: Make debug keystore
+        run: |
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "cn=Android Debug,O=OxClub,C=US" -validity 9999
+          B64=$(base64 -w0 debug.keystore)
+          echo "KS_B64=$B64" >> "$GITHUB_ENV"
+
+      - name: Export APK (Godot CI action)
+        uses: firebelley/godot-export@main
         with:
-          path: ~/godot
-          key: godot-4.3-stable
-
-      - name: Download Godot + templates
-        if: steps.gcache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/godot && cd ~/godot
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
-          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
-          unzip -q Godot_v4.3-stable_linux.x86_64.zip
-          unzip -q Godot_v4.3-stable_export_templates.tpz
-          chmod +x Godot_v4.3-stable_linux.x86_64
-
-      - name: Install export templates
-        run: |
-          mkdir -p ~/.local/share/godot/export_templates/4.3.stable
-          cp ~/godot/templates/* ~/.local/share/godot/export_templates/4.3.stable/
-
-      - name: Create debug keystore
-        run: |
-          mkdir -p ~/.android
-          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "cn=Android Debug,O=Android,C=US" -validity 9999
-
-      - name: Import resources (Godot writes its own settings file here)
-        run: ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --import
-
-      - name: Append Android keys into Godot's own file
+          godot_version: '4.3'
+          export_debug: true
         env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
-          S="$HOME/.config/godot/editor_settings-4.3.tres"
-          echo "=== Godot file before append ==="
-          cat "$S"
-          {
-            printf '\nexport/android/android_sdk_path = "%s"\n' "$ANDROID_HOME"
-            printf 'export/android/java_sdk_path = "%s"\n' "$JAVA_HOME"
-            printf 'export/android/debug_keystore = "%s"\n' "$HOME/.android/debug.keystore"
-            printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
-            printf 'export/android/debug_keystore_pass = "android"\n'
-          } >> "$S"
-          echo "=== after append ==="
-          cat "$S"
-          echo "=== templates ==="
-          ls ~/.local/share/godot/export_templates/4.3.stable/ | head -8
+          SECRET_DEBUG_KEYSTORE_BASE64: ${{ env.KS_B64 }}
+          SECRET_DEBUG_KEYSTORE_USER: androiddebugkey
+          SECRET_DEBUG_KEYSTORE_PASSWORD: android
 
-      - name: Export APK
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
-          set -o pipefail
-          mkdir -p build
-          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --verbose --path . --export-debug "Android" build/OxDrift.apk 2>&1 | tail -100
+      - name: Find the APK
+        run: find . -name "*.apk" -type f
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: OxDrift-APK
-          path: build/OxDrift.apk
+          path: "**/*.apk"
           if-no-files-found: error
