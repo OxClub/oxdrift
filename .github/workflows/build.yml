@@ -18,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Make sure Android SDK pieces exist
+      - name: Android SDK bits
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
@@ -29,11 +29,10 @@ jobs:
       - name: Make debug keystore
         run: |
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "cn=Android Debug,O=OxClub,C=US" -validity 9999
-          B64=$(base64 -w0 debug.keystore)
-          echo "KS_B64=$B64" >> "$GITHUB_ENV"
+          echo "KS_B64=$(base64 -w0 debug.keystore)" >> "$GITHUB_ENV"
 
-      - name: Export APK (Godot CI action)
-        uses: firebelley/godot-export@main
+      - name: Export APK (godot-export action)
+        uses: firebelley/godot-export@v5.2.0
         with:
           godot_version: '4.3'
           export_debug: true
@@ -43,6 +42,7 @@ jobs:
           SECRET_DEBUG_KEYSTORE_PASSWORD: android
 
       - name: Find the APK
+        if: always()
         run: find . -name "*.apk" -type f
 
       - name: Upload APK
