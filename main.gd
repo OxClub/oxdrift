@@ -100,7 +100,7 @@ func build_track() -> void:
         add_box(mid + Vector3(0, 0.03, 0), Vector3(8, 0.06, seg_len + 0.5),
             Color(0.2, 0.2, 0.24), false, yaw)
         for side in [-4.0, 4.0]:
-            var off := Vector3(sin(yaw + PI / 2), 0, cos(yaw + PI / 2)) * side
+            var off: Vector3 = Vector3(sin(yaw + PI / 2), 0, cos(yaw + PI / 2)) * float(side)
             add_box(mid + off + Vector3(0, 0.35, 0), Vector3(0.4, 0.7, seg_len + 0.3),
                 Color(0.85, 0.85, 0.9) if i % 2 == 0 else Color(0.9, 0.25, 0.5), true, yaw)
         prev = cur
