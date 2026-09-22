@@ -26,32 +26,87 @@ jobs:
           yes | $SDKMANAGER --licenses > /dev/null || true
           $SDKMANAGER "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null
 
-      - name: Make debug keystore
-        run: |
-          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "cn=Android Debug,O=OxClub,C=US" -validity 9999
-          echo "KS_B64=$(base64 -w0 debug.keystore)" >> "$GITHUB_ENV"
-
-      - name: Export APK (godot-export action)
-        uses: firebelley/godot-export@v5.2.0
+      - name: Cache Godot
+        id: gcache
+        uses: actions/cache@v4
         with:
-          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
-          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
-          relative_project_path: .
-          export_debug: true
-          cache: true
-          verbose: true
-        env:
-          SECRET_DEBUG_KEYSTORE_BASE64: ${{ env.KS_B64 }}
-          SECRET_DEBUG_KEYSTORE_USER: androiddebugkey
-          SECRET_DEBUG_KEYSTORE_PASSWORD: android
+          path: ~/godot
+          key: godot-4.3-stable-v2
 
-      - name: Find the APK
-        if: always()
-        run: find . -name "*.apk" -type f
+      - name: Download Godot + templates
+        if: steps.gcache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot && cd ~/godot
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
+          unzip -q Godot_v4.3-stable_linux.x86_64.zip
+          unzip -q Godot_v4.3-stable_export_templates.tpz
+          chmod +x Godot_v4.3-stable_linux.x86_64
+
+      - name: Install export templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates/4.3.stable
+          cp ~/godot/templates/* ~/.local/share/godot/export_templates/4.3.stable/
+
+      - name: Debug keystore in ALL locations Godot might check
+        run: |
+          mkdir -p ~/.android ~/.local/share/godot
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "cn=Android Debug,O=OxClub,C=US" -validity 9999
+          cp ~/.android/debug.keystore ~/.local/share/godot/debug.keystore
+
+      - name: Import (Godot writes its own settings file)
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --import
+
+      - name: Insert Android keys into Godot's own settings (top of section)
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          S="$HOME/.config/godot/editor_settings-4.3.tres"
+          echo "=== Godot settings file (before) ==="
+          cat "$S"
+          KEYS="$HOME/keys.tmp"
+          {
+            echo "export/android/android_sdk_path = \"$ANDROID_HOME\""
+            echo "export/android/java_sdk_path = \"$JAVA_HOME\""
+            echo "export/android/debug_keystore = \"$HOME/.android/debug.keystore\""
+            echo "export/android/debug_keystore_user = \"androiddebugkey\""
+            echo "export/android/debug_keystore_pass = \"android\""
+          } > "$KEYS"
+          sed -i "/^\[resource\]/r $KEYS" "$S"
+          rm -f "$KEYS"
+          echo "=== after insert ==="
+          grep -n "export/android" "$S"
+
+      - name: Verify Godot's world (the silent checks, made loud)
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          echo "=== TEMPLATES ==="
+          ls -la ~/.local/share/godot/export_templates/4.3.stable/ | head -12
+          test -f ~/.local/share/godot/export_templates/4.3.stable/android_debug.apk && echo "OK android_debug.apk present" || echo "FAIL android_debug.apk MISSING"
+          test -f ~/.local/share/godot/export_templates/4.3.stable/android_release.apk && echo "OK android_release.apk present" || echo "FAIL android_release.apk MISSING"
+          echo "=== KEYSTORES ==="
+          ls -la ~/.android/debug.keystore ~/.local/share/godot/debug.keystore
+          echo "=== SDK ==="
+          ls "$ANDROID_HOME/build-tools/"
+          find "$ANDROID_HOME/build-tools" -name apksigner | head -2
+          ls "$ANDROID_HOME/platforms/"
+
+      - name: Export APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          set -o pipefail
+          mkdir -p build
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --verbose --path . --export-debug "Android" build/OxDrift.apk 2>&1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: OxDrift-APK
-          path: "**/*.apk"
+          path: build/OxDrift.apk
           if-no-files-found: error
