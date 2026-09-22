@@ -1,0 +1,72 @@
+name: Build OxDrift APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK bits
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          SDKMANAGER=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
+          yes | $SDKMANAGER --licenses > /dev/null || true
+          $SDKMANAGER "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Cache Godot
+        id: gcache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-4.3-stable
+
+      - name: Download Godot + templates
+        if: steps.gcache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot && cd ~/godot
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
+          unzip -q Godot_v4.3-stable_linux.x86_64.zip
+          unzip -q Godot_v4.3-stable_export_templates.tpz
+          chmod +x Godot_v4.3-stable_linux.x86_64
+
+      - name: Install export templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates/4.3.stable
+          cp ~/godot/templates/* ~/.local/share/godot/export_templates/4.3.stable/
+
+      - name: Debug keystore (Godot default location)
+        run: |
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android \
+            -keystore ~/.local/share/godot/debug.keystore -storepass android \
+            -dname "cn=Android Debug,O=Android,C=US" -validity 9999
+
+      - name: Import resources
+        run: ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --import
+
+      - name: Export APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          mkdir -p build
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --export-debug "Android" build/OxDrift.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OxDrift-APK
+          path: build/OxDrift.apk
+          if-no-files-found: error
