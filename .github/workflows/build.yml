@@ -18,16 +18,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK — installed LOUDLY this time
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
-          SDKMANAGER=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
-          yes | $SDKMANAGER --licenses > /dev/null || true
-          $SDKMANAGER "platform-tools" "platforms;android-33" "platforms;android-34" "build-tools;34.0.0"
-          echo "=== platforms now contains: ==="
-          ls "$ANDROID_HOME/platforms/"
-
       - name: Cache Godot
         id: gcache
         uses: actions/cache@v4
@@ -50,69 +40,51 @@ jobs:
           mkdir -p ~/.local/share/godot/export_templates/4.2.2.stable
           cp ~/godot/templates/* ~/.local/share/godot/export_templates/4.2.2.stable/
 
-      - name: Install Android build template (extract android_source.zip)
+      - name: Create debug keystore
         run: |
-          mkdir -p android_tmp
-          unzip -q ~/.local/share/godot/export_templates/4.2.2.stable/android_source.zip -d android_tmp
-          if [ -d android_tmp/build ]; then
-            mkdir -p android
-            cp -r android_tmp/build android/
-          else
-            mkdir -p android/build
-            cp -r android_tmp/* android/build/
-          fi
-          chmod +x android/build/gradlew
-          echo "=== android/build content ==="
-          ls android/build/ | head -10
-          test -f android/build/build.gradle && echo "OK: build.gradle present" || echo "FAIL: build.gradle missing"
-
-      - name: Debug keystore in all locations
-        run: |
-          mkdir -p ~/.android ~/.local/share/godot
+          mkdir -p ~/.android
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "cn=Android Debug,O=OxClub,C=US" -validity 9999
-          cp ~/.android/debug.keystore ~/.local/share/godot/debug.keystore
 
-      - name: Switch preset to gradle build
+      - name: Pack the game PCK (no export validation involved!)
         run: |
-          sed -i 's|gradle_build/use_gradle_build=false|gradle_build/use_gradle_build=true|' export_presets.cfg
-          grep -n "use_gradle_build" export_presets.cfg
-
-      - name: Import (Godot writes its own settings)
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: ~/godot/Godot_v4.2.2-stable_linux.x86_64 --headless --path . --import
-
-      - name: Inject Android keys into Godot's settings
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
-          KEYS="$HOME/keys.tmp"
-          {
-            echo "export/android/android_sdk_path = \"$ANDROID_HOME\""
-            echo "export/android/java_sdk_path = \"$JAVA_HOME\""
-            echo "export/android/debug_keystore = \"$HOME/.android/debug.keystore\""
-            echo "export/android/debug_keystore_user = \"androiddebugkey\""
-            echo "export/android/debug_keystore_pass = \"android\""
-          } > "$KEYS"
-          for S in ~/.config/godot/editor_settings*.tres; do
-            [ -e "$S" ] || continue
-            sed -i '/export\/android\/android_sdk_path/d;/export\/android\/java_sdk_path/d;/export\/android\/debug_keystore/d;/export\/android\/debug_keystore_user/d;/export\/android\/debug_keystore_pass/d' "$S"
-            sed -i "/^\[resource\]/r $KEYS" "$S"
-          done
-          rm -f "$KEYS"
-          grep -c "export/android" ~/.config/godot/editor_settings*.tres
-
-      - name: Export APK (gradle — loud errors, real logs)
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
-          set -o pipefail
+          sed -i '/config\/icon/d' project.godot
           mkdir -p build
-          ~/godot/Godot_v4.2.2-stable_linux.x86_64 --headless --path . --export-debug "Android" build/OxDrift.apk
+          {
+            printf 'extends SceneTree\n'
+            printf '\n'
+            printf 'func _initialize():\n'
+            printf '\tvar pck := PCKPacker.new()\n'
+            printf '\tpck.pck_start("build/OxDrift.pck")\n'
+            printf '\tfor f in ["res://project.godot", "res://Main.tscn", "res://main.gd", "res://car.gd"]:\n'
+            printf '\t\tpck.add_file(f, f)\n'
+            printf '\tpck.flush()\n'
+            printf '\tquit()\n'
+          } > build_pck.gd
+          cat build_pck.gd
+          ~/godot/Godot_v4.2.2-stable_linux.x86_64 --headless --path . --script build_pck.gd
+          echo "=== PCK created ==="
+          ls -la build/
+
+      - name: Assemble APK manually (zip + zipalign + apksigner)
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -e
+          cp ~/.local/share/godot/export_templates/4.2.2.stable/android_debug.apk OxDrift-raw.apk
+          zip -d OxDrift-raw.apk "assets/_pck" "META-INF/*" || echo "nothing to delete, fine"
+          mkdir -p assets
+          cp build/OxDrift.pck assets/_pck
+          zip -X -0 OxDrift-raw.apk assets/_pck
+          BT=$ANDROID_HOME/build-tools/34.0.0
+          $BT/zipalign -f 4 OxDrift-raw.apk OxDrift-aligned.apk
+          $BT/apksigner sign --ks ~/.android/debug.keystore --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out OxDrift.apk OxDrift-aligned.apk
+          $BT/apksigner verify --verbose OxDrift.apk | head -6
+          echo "=== FINAL APK ==="
+          ls -la OxDrift.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: OxDrift-APK
-          path: build/OxDrift.apk
+          path: OxDrift.apk
           if-no-files-found: error
