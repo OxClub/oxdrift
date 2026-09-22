@@ -48,12 +48,13 @@ jobs:
           mkdir -p ~/.local/share/godot/export_templates/4.3.stable
           cp ~/godot/templates/* ~/.local/share/godot/export_templates/4.3.stable/
 
-      - name: Create debug keystore
+      - name: Create debug keystores (both locations)
         run: |
           mkdir -p ~/.android
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "cn=Android Debug,O=Android,C=US" -validity 9999
+          cp ~/.android/debug.keystore ~/.local/share/godot/debug.keystore
 
-      - name: Configure Godot editor settings
+      - name: Write editor settings (pass 1, before import)
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
@@ -69,19 +70,41 @@ jobs:
             echo "android/debug_keystore_user = \"androiddebugkey\""
             echo "android/debug_keystore_pass = \"android\""
           } > ~/.config/godot/editor_settings-4.3.tres
-          echo "=== editor settings ==="
-          cat ~/.config/godot/editor_settings-4.3.tres
-          echo "=== templates ==="
-          ls ~/.local/share/godot/export_templates/4.3.stable/ | head -5
 
       - name: Import resources
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --import
 
+      - name: Write editor settings (pass 2, AFTER import)
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          {
+            echo "config_version=5"
+            echo ""
+            echo "[export]"
+            echo ""
+            echo "android/android_sdk_path = \"$ANDROID_HOME\""
+            echo "android/java_sdk_path = \"$JAVA_HOME\""
+            echo "android/debug_keystore = \"$HOME/.android/debug.keystore\""
+            echo "android/debug_keystore_user = \"androiddebugkey\""
+            echo "android/debug_keystore_pass = \"android\""
+          } > ~/.config/godot/editor_settings-4.3.tres
+          echo "=== settings before export ==="
+          cat ~/.config/godot/editor_settings-4.3.tres
+          echo "=== templates ==="
+          ls ~/.local/share/godot/export_templates/4.3.stable/ | head -8
+          echo "=== keystores ==="
+          ls -la ~/.android/debug.keystore ~/.local/share/godot/debug.keystore
+
       - name: Export APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           set -o pipefail
           mkdir -p build
-          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --verbose --path . --export-debug "Android" build/OxDrift.apk 2>&1 | tail -60
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --verbose --path . --export-debug "Android" build/OxDrift.apk 2>&1 | tail -100
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
