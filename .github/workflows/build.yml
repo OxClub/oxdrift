@@ -58,20 +58,20 @@ jobs:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           mkdir -p ~/.config/godot
-          cat > ~/.config/godot/editor_settings-4.3.tres << EOT
-config_version=5
-
-[export]
-
-android/android_sdk_path = "$ANDROID_HOME"
-android/java_sdk_path = "$JAVA_HOME"
-android/debug_keystore = "$HOME/.android/debug.keystore"
-android/debug_keystore_user = "androiddebugkey"
-android/debug_keystore_pass = "android"
-EOT
-          echo "=== editor settings content ==="
+          {
+            echo "config_version=5"
+            echo ""
+            echo "[export]"
+            echo ""
+            echo "android/android_sdk_path = \"$ANDROID_HOME\""
+            echo "android/java_sdk_path = \"$JAVA_HOME\""
+            echo "android/debug_keystore = \"$HOME/.android/debug.keystore\""
+            echo "android/debug_keystore_user = \"androiddebugkey\""
+            echo "android/debug_keystore_pass = \"android\""
+          } > ~/.config/godot/editor_settings-4.3.tres
+          echo "=== editor settings ==="
           cat ~/.config/godot/editor_settings-4.3.tres
-          echo "=== templates installed ==="
+          echo "=== templates ==="
           ls ~/.local/share/godot/export_templates/4.3.stable/ | head -5
 
       - name: Import resources
@@ -79,6 +79,7 @@ EOT
 
       - name: Export APK
         run: |
+          set -o pipefail
           mkdir -p build
           ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --verbose --path . --export-debug "Android" build/OxDrift.apk 2>&1 | tail -60
 
