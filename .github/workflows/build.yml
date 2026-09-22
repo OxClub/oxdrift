@@ -48,52 +48,52 @@ jobs:
           mkdir -p ~/.local/share/godot/export_templates/4.3.stable
           cp ~/godot/templates/* ~/.local/share/godot/export_templates/4.3.stable/
 
-      - name: Debug keystore in ALL locations Godot might check
+      - name: Debug keystore in all locations
         run: |
           mkdir -p ~/.android ~/.local/share/godot
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "cn=Android Debug,O=OxClub,C=US" -validity 9999
           cp ~/.android/debug.keystore ~/.local/share/godot/debug.keystore
 
-      - name: Import (Godot writes its own settings file)
+      - name: Import (Godot creates its own settings)
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --path . --import
 
-      - name: Insert Android keys into Godot's own settings (top of section)
+      - name: FORENSICS + inject keys into EVERY settings file
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          S="$HOME/.config/godot/editor_settings-4.3.tres"
-          echo "=== Godot settings file (before) ==="
-          cat "$S"
+          S_DIR="$HOME/.config/godot"
+          echo "=== ALL files Godot created in config dir ==="
+          find "$S_DIR" -type f -exec ls -la {} \;
           KEYS="$HOME/keys.tmp"
-          {
-            echo "export/android/android_sdk_path = \"$ANDROID_HOME\""
-            echo "export/android/java_sdk_path = \"$JAVA_HOME\""
-            echo "export/android/debug_keystore = \"$HOME/.android/debug.keystore\""
-            echo "export/android/debug_keystore_user = \"androiddebugkey\""
-            echo "export/android/debug_keystore_pass = \"android\""
-          } > "$KEYS"
-          sed -i "/^\[resource\]/r $KEYS" "$S"
-          rm -f "$KEYS"
-          echo "=== after insert ==="
-          grep -n "export/android" "$S"
-
-      - name: Verify Godot's world (the silent checks, made loud)
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
-          echo "=== TEMPLATES ==="
-          ls -la ~/.local/share/godot/export_templates/4.3.stable/ | head -12
-          test -f ~/.local/share/godot/export_templates/4.3.stable/android_debug.apk && echo "OK android_debug.apk present" || echo "FAIL android_debug.apk MISSING"
-          test -f ~/.local/share/godot/export_templates/4.3.stable/android_release.apk && echo "OK android_release.apk present" || echo "FAIL android_release.apk MISSING"
-          echo "=== KEYSTORES ==="
-          ls -la ~/.android/debug.keystore ~/.local/share/godot/debug.keystore
-          echo "=== SDK ==="
-          ls "$ANDROID_HOME/build-tools/"
-          find "$ANDROID_HOME/build-tools" -name apksigner | head -2
-          ls "$ANDROID_HOME/platforms/"
+          for S in "$S_DIR"/editor_settings*.tres; do
+            [ -e "$S" ] || { echo "NO SETTINGS FILE FOUND — that is the bug!"; continue; }
+            echo "=== injecting into: $S ==="
+            grep -q '^\[resource\]' "$S" || echo "" >> "$S" || true
+            grep -q '^\[resource\]' "$S" || echo "[resource]" >> "$S"
+            sed -i '/export\/android\/android_sdk_path/d;/export\/android\/java_sdk_path/d;/export\/android\/debug_keystore/d;/export\/android\/debug_keystore_user/d;/export\/android\/debug_keystore_pass/d' "$S"
+            {
+              echo "export/android/android_sdk_path = \"$ANDROID_HOME\""
+              echo "export/android/java_sdk_path = \"$JAVA_HOME\""
+              echo "export/android/debug_keystore = \"$HOME/.android/debug.keystore\""
+              echo "export/android/debug_keystore_user = \"androiddebugkey\""
+              echo "export/android/debug_keystore_pass = \"android\""
+            } > "$KEYS"
+            sed -i "/^\[resource\]/r $KEYS" "$S"
+            rm -f "$KEYS"
+            echo "--- content of $S ---"
+            cat "$S"
+          done
+          echo "=== export_presets.cfg from repo ==="
+          cat export_presets.cfg
+          echo "=== templates check ==="
+          ls -la ~/.local/share/godot/export_templates/4.3.stable/ | head -14
+          test -f ~/.local/share/godot/export_templates/4.3.stable/android_debug.apk && echo "OK: android_debug.apk present" || echo "FAIL: android_debug.apk MISSING"
+          echo "=== adb + apksigner ==="
+          ls "$ANDROID_HOME/platform-tools/adb"
+          find "$ANDROID_HOME/build-tools" -name apksigner
 
       - name: Export APK
         env:
